@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Path, Query, HTTPException
+from pydantic import BaseModel, Field
+from typing import Optional
+from starlette import status
 
 app = FastAPI()
 
@@ -16,6 +19,23 @@ class Book:
         self.rating = rating
         self.description = description
     
+class BookRequest(BaseModel):
+    id: Optional[int] = Field(description='ID is not need on create', default=None)
+    title: str = Field(..., min_length=3)
+    author: str = Field(..., min_length=3)
+    rating: int = Field(..., gt=0, lt=6)
+    description: str = Field(..., min_length=3)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "title": "My First Book",
+                "author": "Christopher",
+                "rating": 5,
+                "description": "A book about love"
+            }
+        }
+    }
 
 books = [
     Book(1, "Book 1", "Author 1", 1, "Description 1"),
@@ -26,35 +46,33 @@ books = [
     Book(6, "Book 6", "Author 6", 6, "Description 6")
 ]
 
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
-@app.get("/books")
+@app.get("/books", status_code=status.HTTP_200_OK)
 def read_all_books():
     return books
 
-@app.get("/books/{book_id}")
-def read_item(book_id: int):
+@app.get("/books/{book_id}", status_code=status.HTTP_200_OK)
+def read_item(book_id: int = Path(gt=0)):
     for book in books:
-        if book.get("id") == book_id:
+        if book.id == book_id:
             return book
-    return {"message": "Book not found"}
+    raise HTTPException(status_code=404, detail="Book not found")
 
 @app.get("/books/")
-def read_title_by_query(title: str):
+def read_title_by_query(title: str = Query(min_length=3, max_length=100)):
     requested_books = []
     for book in books:
-        if book.get("title") == title:
+        if book.title == title:
             requested_books.append(book)
     return requested_books
 
-@app.post("/books")
-def create_book(book: dict):
-    books.append(book)
+@app.post("/books", status_code=status.HTTP_201_CREATED)
+def create_book(book: BookRequest):
+    new_book = Book(**book.dict())
+    books.append(find_book_id(new_book))
+    return new_book
 
-@app.put("/books/{book_id}")
-def update_book(book_id: int, book_data: dict):
+@app.put("/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+def update_book(book_id: int, book_data: BookRequest):
     for book in books:
         if book.get("id") == book_id:
             book.update(book_data)
@@ -68,3 +86,12 @@ def delete_book(book_id: int):
             books.remove(book)
             return {"message": "Book deleted successfully"}
     return {"message": "Book not found"}
+
+
+def find_book_id(book: Book):
+    if len(books) > 0:
+        book.id = books[-1].id + 1
+    else:
+        book.id = 1
+    return book
+    
